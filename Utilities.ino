@@ -1,3 +1,65 @@
+
+/**
+ * Update our indicator LEDs based on new Vessel data
+ **/
+void UpdateIndicators(){
+	/*
+	sprintf(
+		sprintbuff,
+		"\n> SAS:%d RCS:%d GEAR:%d LUZ:%d BRK:%d",
+		GetControlStatus(AGSAS),
+		GetControlStatus(AGRCS),
+		GetControlStatus(AGGear),
+		GetControlStatus(AGLight),
+		GetControlStatus(AGBrakes)
+	);
+	Serial1.print(sprintbuff);
+	*/
+	digitalWrite(LED_GEAR,   KSPGetControlState(AGGear));
+	digitalWrite(LED_RCS,    KSPGetControlState(AGRCS));
+	digitalWrite(LED_LIGHTS, KSPGetControlState(AGLight));
+	digitalWrite(LED_SAS,    KSPGetControlState(AGSAS));
+}
+
+
+/**
+ * Writes values to the KSP ControlData struct
+ * @state the current input state
+ **/
+void WriteControlData(InputState_t state){
+	// Need to take into account the current state before we change it
+	if(state.pressed.rcs){
+		if(KSPGetControlState(AGRCS)){
+			KSPSetControlState(RCS, LOW);
+		}else{
+			KSPSetControlState(RCS, HIGH);
+		}
+	}
+	if(state.pressed.gear){
+		if(KSPGetControlState(AGGear)){
+			KSPSetControlState(GEAR, LOW);
+		}else{
+			KSPSetControlState(GEAR, HIGH);
+		}
+	}
+	if(state.pressed.lights){
+		if(KSPGetControlState(AGLight)){
+			KSPSetControlState(LIGHTS, LOW);
+		}else{
+			KSPSetControlState(LIGHTS, HIGH);
+		}
+	}
+	if(state.pressed.sas){
+		if(KSPGetControlState(AGSAS)){
+			KSPSetControlState(SAS, LOW);
+		}else{
+			KSPSetControlState(SAS, HIGH);
+		}
+	}
+}
+
+
+
 /**
  * Turn off all the LEDs
  * @delaytime optional ms delay between LEDs
@@ -60,7 +122,7 @@ char* pBinFill(long int x, char *so, char fillChar){
  * Use the built in WS2812B to show Connected state
  * plus RX and TX activity
  **/
-void showStatusLED(){
+void UpdateStatusLED(){
 	ws2812_led[0] = CRGB(
 		(IOState.Connected?50:0),
 		(IOState.DataSent?50:0),

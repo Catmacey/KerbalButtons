@@ -49,7 +49,7 @@
 #define NAVBallSURFACE  2
 #define NAVBallTARGET   3
 
-//if no message received from KSP for more than Xs, go idle
+// If no message received from KSP for more than X ms, go idle
 #define IDLETIMER 5000
 #define CONTROLREFRESH 50
 
@@ -133,20 +133,20 @@ typedef struct __attribute__((__packed__)) {
 
 typedef struct __attribute__((__packed__)) {
 	uint8_t id;
-	uint8_t MainControls;                  //SAS RCS Lights Gear Brakes Precision Abort Stage
-	uint8_t Mode;                          //0 = stage, 1 = docking, 2 = map
-	uint16_t ControlGroup;          //control groups 1-10 in 2 bytes
-	uint8_t NavballSASMode;                //AutoPilot mode
+	uint8_t MainControls;           // SAS RCS Lights Gear Brakes Precision Abort Stage
+	uint8_t Mode;                   // 0 = stage, 1 = docking, 2 = map
+	uint16_t ControlGroup;          // control groups 1-10 in 2 bytes
+	uint8_t NavballSASMode;         //AutoPilot mode
 	uint8_t AdditionalControlByte1;
-	int16_t Pitch;                          //-1000 -> 1000
-	int16_t Roll;                           //-1000 -> 1000
-	int16_t Yaw;                            //-1000 -> 1000
-	int16_t TX;                             //-1000 -> 1000
-	int16_t TY;                             //-1000 -> 1000
-	int16_t TZ;                             //-1000 -> 1000
-	int16_t WheelSteer;                     //-1000 -> 1000
-	int16_t Throttle;                       //    0 -> 1000
-	int16_t WheelThrottle;                  //    0 -> 1000
+	int16_t Pitch;                  //-1000 -> 1000
+	int16_t Roll;                   //-1000 -> 1000
+	int16_t Yaw;                    //-1000 -> 1000
+	int16_t TX;                     //-1000 -> 1000
+	int16_t TY;                     //-1000 -> 1000
+	int16_t TZ;                     //-1000 -> 1000
+	int16_t WheelSteer;             //-1000 -> 1000
+	int16_t Throttle;               //    0 -> 1000
+	int16_t WheelThrottle;          //    0 -> 1000
 } ControlPacket_t;
 
 typedef struct {

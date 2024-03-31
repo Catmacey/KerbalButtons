@@ -1,48 +1,55 @@
-uint8_t rx_len;
 uint8_t * address;
 uint8_t buffer[256]; //address for temporary storage and parsing buffer
 uint8_t structSize;
-uint8_t rx_array_inx;  //index for RX parsing buffer
 uint8_t calc_CS;	   //calculated Chacksum
+// Packet id
+uint8_t id;
+//index for RX parsing buffer
+uint8_t rx_array_inx;
+uint8_t rx_len;
 
 KSPSerialIOState_t IOState = {false, false, false};
 
-//macro
-#define details(name) (uint8_t*)&name,sizeof(name)
+// Macro to provide address and len of datapacket
+#define DETAILS(name) (uint8_t*)&name,sizeof(name)
 
 //This shit contains stuff borrowed from EasyTransfer lib
 boolean KSPBoardReceiveData() {
-	if ((rx_len == 0)&&(Serial.available()>3)){
-		while(Serial.read()!= 0xBE) {
-			if (Serial.available() == 0){
-				// digitalWrite(LED_RX, LOW);
 
+	
+	if((rx_len == 0)&&(Serial.available()>3)){
+		
+		// Serial1.println("here");
+		
+		// We look for the preamble "BEEF"
+		while(Serial.read()!= 0xBE) {
+			if(Serial.available() == 0){
 				return false;
 			}
 		}
+
+
 		if(Serial.read() == 0xEF){
-			// digitalWrite(LED_RX, HIGH);
 			IOState.DataReceived = true;
 			rx_len = Serial.read();
 			id = Serial.read(); 
 			rx_array_inx = 1;
 
 			switch(id) {
-			case 0:
-				structSize = sizeof(HPacket);   
-				address = (uint8_t*)&HPacket;     
-				break;
-			case 1:
-				structSize = sizeof(VData);   
-				address = (uint8_t*)&VData;     
-				break;
+				case 0:
+					structSize = sizeof(HPacket);   
+					address = (uint8_t*)&HPacket;     
+					break;
+				case 1:
+					structSize = sizeof(VData);   
+					address = (uint8_t*)&VData;     
+					break;
 			}
 		}
 
 		//make sure the binary structs on both Arduinos are the same size.
 		if(rx_len != structSize){
 			rx_len = 0;
-			// digitalWrite(LED_RX, LOW);
 			return false;
 		}
 	}
@@ -65,25 +72,25 @@ boolean KSPBoardReceiveData() {
 				memcpy(address,buffer,structSize);
 				rx_len = 0;
 				rx_array_inx = 1;
-				// digitalWrite(LED_RX, LOW);
 				return true;
 			}
 			else{
 				//failed checksum, need to clear this out anyway
 				rx_len = 0;
 				rx_array_inx = 1;
-				// digitalWrite(LED_RX, LOW);
 				return false;
 			}
 		}
 	}
-	// digitalWrite(LED_RX, LOW);
 	return false;
 }
 
-void KSPBoardSendData(uint8_t * address, uint8_t len){
-	// digitalWrite(LED_TX,HIGH); 
 
+/**
+ * Send a data packet to KSPSerial
+ * address and len can be provided by the DETAIL() macro
+ **/
+void KSPBoardSendData(uint8_t * address, uint8_t len){
 	IOState.DataSent = true;
 
 	uint8_t CS = len;
@@ -98,8 +105,6 @@ void KSPBoardSendData(uint8_t * address, uint8_t len){
 	}
 	
 	Serial.write(CS);
-	
-	// digitalWrite(LED_TX,LOW); 
 }
 
 void InitTxPackets(){
@@ -109,9 +114,14 @@ void InitTxPackets(){
 
 
 /**
- * Receives data from KSPIO
+ * Check Serial buffer for new data from KSPIO
+ * Handles inital handshaking and maintains IOState.connected
+ * return:
+ *  -1 no connection
+ *   0 Handshake received
+ *   1 Data received
  **/
-int ReceiveSerialData() {
+int KSPCheckForUpdate() {
 	int returnValue = -1;
 	now = millis();
 
@@ -121,7 +131,6 @@ int ReceiveSerialData() {
 		switch(id) {
 			case 0: //Handshake packet
 				SendHandshake();
-				Serial1.print("\nSent Handshake\n");
 				break;
 			case 1:
 				// Indicators();
@@ -129,23 +138,27 @@ int ReceiveSerialData() {
 				break;
 		}
 
-		//We got some data, turn the green led on
-		// digitalWrite(LED_CONNECTED, HIGH);
 		IOState.Connected = true;
-		// Connected = true;
 	}else{
-		//if no message received for a while, go idle
+		// If no message received for a while, go idle
 		deadtime = now - deadtimeOld; 
 		if(deadtime > IDLETIMER){
 			deadtimeOld = now;
-			// Connected = false;
-			Serial1.print("\nNot connected!\n");
 			IOState.Connected = false;
-			// digitalWrite(LED_CONNECTED, LOW);
 		}
 	}
 	return returnValue;
 }
+
+
+/**
+ * Sends a Control Packet to KSPIO
+ **/
+void KSPSendControlData(){
+	// TODO: Replace macro with inline code
+	KSPBoardSendData(DETAILS(CPacket));
+}
+
 
 /**
  * Sends a Serial Handshake to KSPIO
@@ -155,7 +168,8 @@ void SendHandshake(){
 	HPacket.M1 = 3;
 	HPacket.M2 = 1;
 	HPacket.M3 = 4;
-	KSPBoardSendData(details(HPacket));
+	// TODO: Replace macro with inline code
+	KSPBoardSendData(DETAILS(HPacket));
 }
 
 /**
@@ -164,3 +178,95 @@ void SendHandshake(){
 void ClearState(){
 	IOState = {false, false, false};
 }
+
+/**
+ * Returns a State value from VesselData.ActionGroups
+ * This is where RCS, SAS, GEAR as well as Action group state is stored
+ * @agbit Action group ENUM value eg. AGSAS or AGCustom04
+ **/
+boolean KSPGetControlState(uint8_t agbit){
+	return ((VData.ActionGroups >> agbit) & 1) == 1;
+}
+
+
+/**
+ * Returns the Current SAS mode
+ **/
+uint8_t KSPGetSASMode(){
+	// Navballmode and SASmode are stored in the same byte
+	// We want just the low nibble
+	return VData.NavballSASMode & 0b00001111;
+}
+
+
+/**
+ * Returns the current Navball mode
+ **/
+uint8_t KSPGetNavballMode(){
+	// Navballmode and SASmode are stored in the same byte
+	// We want just the high nibble
+	return VData.NavballSASMode >> 4;
+}
+
+
+/**
+ * Sets a new SAS mode
+ * @mode SAS mode enum value eg. SMPrograde
+ **/
+void KSPSetSASMode(uint8_t mode){
+	// Navballmode and SASmode are stored in the same byte
+	// We only want to change the low nibble
+	CPacket.NavballSASMode &= 0b11110000;
+	CPacket.NavballSASMode += mode;
+}
+
+/**
+ * Sets a new Navball mode
+ * @mode Navball mode enum eg. NAVBallORBIT
+ **/
+void KSPSetNavballMode(uint8_t mode){
+	// Navballmode and SASmode are stored in the same byte
+	// We only want to change the high nibble
+	CPacket.NavballSASMode &= 0b00001111;
+	CPacket.NavballSASMode += (mode << 4);
+}
+
+
+/**
+ * Sets a control group bit
+ * I think this is setting Action Groups?
+ * @groupbit the group number 1 - 10
+ * @state the new state
+ **/
+void KSPSetActionGroup(uint8_t groupbit, boolean state){
+	if(state){
+		CPacket.ControlGroup |= (1 << groupbit);       // forces nth bit of x to be 1.  all other bits left alone.
+	}else{
+		CPacket.ControlGroup &= ~(1 << groupbit);      // forces nth bit of x to be 0.  all other bits left alone.
+	}
+}
+
+
+/**
+ * Sets the state of one of the ControlPacket.MainContols bits
+ * This is how we send button presses back to KSPIO
+ * @controlbit Main Controls ENUM value eg. SAS
+ * @state the new value
+ **/
+void KSPSetControlState(uint8_t controlbit, boolean state){
+	if(state){
+		CPacket.MainControls |= (1 << controlbit);  // forces nth bit of x to be 1. all other bits left alone.
+	}else{
+		CPacket.MainControls &= ~(1 << controlbit); // forces nth bit of x to be 0. all other bits left alone.
+	}
+}
+
+/**
+ * Returns the state of the requested main control bit
+ * I DONT THINK THIS IS NEEDED.
+ * Why would you read the control packet it is used to send data
+ **/
+// boolean GetMainControls(uint8_t controlbit){
+// 	// Mask out all but the bit we want
+// 	return CPacket.MainControls & (1 << controlbit);
+// }

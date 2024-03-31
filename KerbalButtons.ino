@@ -8,7 +8,7 @@
 #include <FastLED.h>
 #include "TypeDefs.h"
 #include "HardwareConf.h"
-#include "KSPSerialIO.h"
+#include "KSPSerial.h"
 
 #define FASTLED_NUM_LEDS 1
 #define FASTLED_DATA_PIN 16
@@ -35,7 +35,7 @@ uint8_t all_leds[] = {
 // KSPSerialIOState_t IOState = {false, false, false};
 
 char sprintbuff[100];
-uint8_t caution = 0, warning = 0, id, ctr = 0;
+// uint8_t ctr = 0;
 String txtMsg = ""; 
 
 // Declare prototypes with default value (seems to be the way in Arduino)
@@ -63,15 +63,14 @@ void setup(){
 
 	FastLED.addLeds<NEOPIXEL, FASTLED_DATA_PIN>(ws2812_led, FASTLED_NUM_LEDS);
 
-	// HW Serial 0 on pin 12
+	// HW Serial 0 on pin 12 for debug output
 	Serial1.setTX(12);
 	Serial1.begin(38400);
 
 	Serial1.println("Boot");
 	Serial1.print("LED");
-	// initLEDS();
-	Serial1.println("OK");
-	// InitTxPackets();
+	
+	InitTxPackets();
 
 	pinMode(PIN_LIGHTS, INPUT_PULLUP);
 	pinMode(PIN_GEAR,   INPUT_PULLUP);
@@ -83,6 +82,8 @@ void setup(){
 	pinMode(LED_GEAR,      OUTPUT);
 	pinMode(LED_RCS,       OUTPUT);
 	pinMode(LED_SAS,       OUTPUT);
+
+	Serial1.println("OK");
 
 	uint8_t idx = 6;
 	while(idx-- > 0){
@@ -102,21 +103,35 @@ void loop(){
 	
 	ClearState();
 	
-	Serial1.print(".");
 
-	// ReceiveSerialData();
+	switch(KSPCheckForUpdate()){
+		case -1:
+			// Nothing
+			// Serial1.println("\nNot connected!");
+			break;
+		case 0:
+			// Handshake
+			Serial1.println("\nSent Handshake");
+			break;
+		case 1:
+			// New data
+			// Serial1.println("\nReceived new data");
+
+			// Update LEDs
+			UpdateIndicators();
+			break;
+	}
+
 	GatherInput();
-	delay(10);
 
 	now = millis();
 	controlTime = now - controlTimeOld;
 	if(controlTime > CONTROLREFRESH){
 		
-		// digitalWrite(LED_RUN, !digitalRead(LED_RUN));
+		Serial1.print(".");
 
 		InputState_t state = processInputs();
 
-    //InputState_t state.complete = 0;
 		if(state.pressed.complete){
 			sprintf(sprintbuff,   "\nPressed %s", pBinFill(state.pressed.complete, pBinFill_Buffer, '_'));
 			Serial1.print(sprintbuff);
@@ -124,8 +139,11 @@ void loop(){
 			// Only send data if something has changed
 			//sprintf(sprintbuff,   "\nM %s", pBinFill(CPacket.MainControls, pBinFill_Buffer, '_'));
 			//Serial1.print(sprintbuff);
-
-			// writeControlData(state);
+			
+			// Populate the Control Packet with out new values
+			WriteControlData(state);
+			// Send the Packet
+			KSPSendControlData();
 			//KSPBoardSendData(details(CPacket));
 
 			//sprintf(sprintbuff,   "\nM %s", pBinFill(CPacket.MainControls, pBinFill_Buffer, '_'));
@@ -135,5 +153,9 @@ void loop(){
 	
 		controlTimeOld = now;
 	}
-	showStatusLED();
+
+	UpdateStatusLED();
+
+	// No point running the loop faster than the game framerate
+	delay(10);
 }

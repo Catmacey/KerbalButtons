@@ -1,0 +1,14 @@
+{
+	"folders":
+	[
+		{
+			"name": "Kerbal Buttons",
+			"path": ".",
+		},
+		{
+			"name":"Arduino Workspace",
+			"path": "C:\\Users\\Matt\\Dropbox\\Electronics\\Arduino"
+		},
+	],
+	"binary_file_patterns": ["C:\\Users\\Matt\\Dropbox\\Electronics\\Arduino\\*"]
+}
