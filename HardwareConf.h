@@ -1,5 +1,5 @@
 // NOTE: Pins are for Waveshare RP2040-Zero
-// RP2040 GPIO number is same as the Ardunio PIN number
+// RP2040 GPIO number is same as the Arduino PIN number
 // We also have a WS2812B on PIN16
 /*        
 				Pin#              Pin#
@@ -22,7 +22,6 @@
             Pin13 = GPIO10
             Pin14 = GPIO9
 */
-// General purpose indicators
 
 // Button inputs
 #define PIN_LIGHTS    0
