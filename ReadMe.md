@@ -13,7 +13,7 @@ Built using a tiny [Waveshare RP2040 Zero](https://www.waveshare.com/wiki/RP2040
 Uses [FastLED](https://fastled.io/docs/index.html) to control the built-in WS2812b on the Zero.
 
 
-See [HardwareConf.h] for wiring. 
+See [HardwareConf.h](HardwareConf.h) for wiring. 
 
 
 
