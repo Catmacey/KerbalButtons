@@ -16,15 +16,14 @@ CRGB ws2812_led[FASTLED_NUM_LEDS];
 
 
 // Bits to dispaly and buffer to store bit output
-#define kDisplayWidth 16
-char pBinFill_Buffer[kDisplayWidth+1];
+char pBinFill_Buffer[17];
 
-
-
-unsigned long deadtime, deadtimeOld, controlTime, controlTimeOld, now;
+// Approx freq that process input
+#define CONTROLREFRESH 100
+uint32_t controlTime, controlTimeOld;
 
 uint8_t all_leds[] = {
-	LED_CONNECTED,
+	LED_ALLTOP,
 	LED_LIGHTS,
 	LED_GEAR,
 	LED_RCS,
@@ -32,43 +31,32 @@ uint8_t all_leds[] = {
 	255
 };
 
-// KSPSerialIOState_t IOState = {false, false, false};
+// This is here for debug
+VesselData_t VData;
 
 char sprintbuff[100];
-// uint8_t ctr = 0;
-String txtMsg = ""; 
 
 // Declare prototypes with default value (seems to be the way in Arduino)
 void LEDSAllOn(uint8_t delaytime = 20);
 void LEDSAllOff(uint8_t delaytime = 20);
 
-HandShakePacket_t HPacket;
-VesselData_t VData;
-ControlPacket_t CPacket;
-
-
-
-#define INPUT_DEBOUNCE_BUFLEN 8 // How many input samples we use to debounce
-uint8_t inputstep = 0; // Current debounce buffer index
-
-InputState_t _state;  // Computed state
-Input_t _now;
-Input_t _then;
-// Array to store input buffer samples for debouncing
-Input_t g_inputbuffer[INPUT_DEBOUNCE_BUFLEN];
 
 void setup(){
-  // USB serial
-	Serial.begin(38400);
+	// USB serial
+	// Serial.begin(38400);
+	// DEV: Using Serial 2 to communicate with KSP
 
 	FastLED.addLeds<NEOPIXEL, FASTLED_DATA_PIN>(ws2812_led, FASTLED_NUM_LEDS);
 
 	// HW Serial 0 on pin 12 for debug output
 	Serial1.setTX(12);
-	Serial1.begin(38400);
-
+	Serial1.begin(115200);
 	Serial1.println("Boot");
-	Serial1.print("LED");
+
+	// Serial 2 is used to talk to KSP
+	Serial2.setTX(4);
+	Serial2.setRX(5);
+	Serial2.begin(38400);
 	
 	InitTxPackets();
 
@@ -77,14 +65,16 @@ void setup(){
 	pinMode(PIN_RCS,    INPUT_PULLUP);
 	pinMode(PIN_SAS,    INPUT_PULLUP);
 	
-	pinMode(LED_CONNECTED, OUTPUT);
-	pinMode(LED_LIGHTS,    OUTPUT);
-	pinMode(LED_GEAR,      OUTPUT);
-	pinMode(LED_RCS,       OUTPUT);
-	pinMode(LED_SAS,       OUTPUT);
+	pinMode(LED_ALLTOP,   OUTPUT);
+	pinMode(LED_LIGHTS,   OUTPUT);
+	pinMode(LED_GEAR,     OUTPUT);
+	pinMode(LED_RCS,      OUTPUT);
+	pinMode(LED_SAS,      OUTPUT);
+	pinMode(PIN_LOOP_TICK,    OUTPUT);
+	pinMode(PIN_CONTROL_TICK, OUTPUT);
+	pinMode(PIN_RECEIVE_TICK, OUTPUT);
 
-	Serial1.println("OK");
-
+	Serial1.println("LED");
 	uint8_t idx = 6;
 	while(idx-- > 0){
 		LEDSAllOn(25);
@@ -99,63 +89,84 @@ void setup(){
 	Serial1.println("Run");
 }
 
+boolean donesend = false;
+boolean sendit = false;
+uint16_t old_VData_ActionGroups = 0;
+uint16_t old_VData_NavballSASMode = 0;
+
 void loop(){
 	
+	// TODO: Make a better job of running this at a specific rate
+	digitalWrite(PIN_LOOP_TICK, !digitalRead(PIN_LOOP_TICK));
+
 	ClearState();
-	
+	GatherInput();
+
 
 	switch(KSPCheckForUpdate()){
 		case -1:
-			// Nothing
-			// Serial1.println("\nNot connected!");
+			// No new data
 			break;
 		case 0:
 			// Handshake
-			Serial1.println("\nSent Handshake");
 			break;
 		case 1:
 			// New data
-			// Serial1.println("\nReceived new data");
-
+			digitalWrite(PIN_RECEIVE_TICK, !digitalRead(PIN_RECEIVE_TICK));
 			// Update LEDs
 			UpdateIndicators();
+			UpdateMainControlsState();
+			if(
+				(VData.ActionGroups != old_VData_ActionGroups)
+				|| (VData.NavballSASMode != old_VData_NavballSASMode)
+			){
+				DebugVesselData();
+				old_VData_ActionGroups = VData.ActionGroups;
+				old_VData_NavballSASMode = VData.NavballSASMode;
+			}
+			// Flag send it as false now we have received some data
+			sendit = false;
+			if(donesend){
+				DebugMainControls();
+				Serial1.print(" <-- As received");
+				donesend = false;
+			}
 			break;
 	}
 
-	GatherInput();
 
-	now = millis();
+	uint32_t now = millis();
 	controlTime = now - controlTimeOld;
 	if(controlTime > CONTROLREFRESH){
 		
-		Serial1.print(".");
+		digitalWrite(PIN_CONTROL_TICK, !digitalRead(PIN_CONTROL_TICK));
 
 		InputState_t state = processInputs();
 
-		if(state.pressed.complete){
-			sprintf(sprintbuff,   "\nPressed %s", pBinFill(state.pressed.complete, pBinFill_Buffer, '_'));
-			Serial1.print(sprintbuff);
+		// DebugVesselData();
+		// DebugMainControls();
+		// Only send data if input has changed
+		if(state.pressed.allbits){
+			DebugButtonStates();
 
-			// Only send data if something has changed
-			//sprintf(sprintbuff,   "\nM %s", pBinFill(CPacket.MainControls, pBinFill_Buffer, '_'));
-			//Serial1.print(sprintbuff);
-			
 			// Populate the Control Packet with out new values
 			WriteControlData(state);
-			// Send the Packet
-			KSPSendControlData();
-			//KSPBoardSendData(details(CPacket));
+			DebugMainControls();
+			Serial1.print(" --> To send");
 
-			//sprintf(sprintbuff,   "\nM %s", pBinFill(CPacket.MainControls, pBinFill_Buffer, '_'));
-			// Serial1.print(sprintbuff);
+			// Flag that we want to send a packet
+			sendit = true;
 
 		}
 	
+		if(sendit){
+			// Send it as many times as we can until we recieve new data
+			donesend = true;
+			KSPSendControlData();
+		}
+
 		controlTimeOld = now;
 	}
-
+	delay(3);
 	UpdateStatusLED();
-
-	// No point running the loop faster than the game framerate
-	delay(10);
 }

@@ -30,9 +30,13 @@
 #define PIN_SAS       3
 
 // LED outputs
-#define LED_CONNECTED 4 // Top led panel of all buttons. Used to indicate connection
-#define LED_LIGHTS    5
+#define LED_ALLTOP    14 // Top led panel of all buttons. Used to indicate connection
+#define LED_LIGHTS    15
 #define LED_GEAR      6
 #define LED_RCS       7
 #define LED_SAS       8
 
+// Debug outputs
+#define PIN_LOOP_TICK     26
+#define PIN_CONTROL_TICK  27
+#define PIN_RECEIVE_TICK  28

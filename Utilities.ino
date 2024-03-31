@@ -3,18 +3,9 @@
  * Update our indicator LEDs based on new Vessel data
  **/
 void UpdateIndicators(){
-	/*
-	sprintf(
-		sprintbuff,
-		"\n> SAS:%d RCS:%d GEAR:%d LUZ:%d BRK:%d",
-		GetControlStatus(AGSAS),
-		GetControlStatus(AGRCS),
-		GetControlStatus(AGGear),
-		GetControlStatus(AGLight),
-		GetControlStatus(AGBrakes)
-	);
-	Serial1.print(sprintbuff);
-	*/
+	// Illuminate the top section of all the buttons
+	digitalWrite(LED_ALLTOP, HIGH);
+	// Illuminate the relevant button
 	digitalWrite(LED_GEAR,   KSPGetControlState(AGGear));
 	digitalWrite(LED_RCS,    KSPGetControlState(AGRCS));
 	digitalWrite(LED_LIGHTS, KSPGetControlState(AGLight));
@@ -23,41 +14,52 @@ void UpdateIndicators(){
 
 
 /**
- * Writes values to the KSP ControlData struct
- * @state the current input state
+ * Update the CPacket.MainControls data to make the incomming Vessel Data
+ * Call this every time you receive new data
+ **/
+void UpdateMainControlsState(){
+	KSPSetMainControls(RCS, KSPGetControlState(AGRCS));
+	KSPSetMainControls(GEAR, KSPGetControlState(AGGear));
+	KSPSetMainControls(LIGHTS, KSPGetControlState(AGLight));
+	KSPSetMainControls(SAS, KSPGetControlState(SAS));
+}
+
+
+/**
+ * Update the ControlData with change to state
+ * Our buttons are all momentary action. So we
+ * need to toggle the current state of whatever
+ * button was pressed.
  **/
 void WriteControlData(InputState_t state){
-	// Need to take into account the current state before we change it
 	if(state.pressed.rcs){
-		if(KSPGetControlState(AGRCS)){
-			KSPSetControlState(RCS, LOW);
-		}else{
-			KSPSetControlState(RCS, HIGH);
-		}
+		KSPToggleMainControls(RCS);
 	}
 	if(state.pressed.gear){
-		if(KSPGetControlState(AGGear)){
-			KSPSetControlState(GEAR, LOW);
-		}else{
-			KSPSetControlState(GEAR, HIGH);
-		}
+		KSPToggleMainControls(GEAR);
 	}
 	if(state.pressed.lights){
-		if(KSPGetControlState(AGLight)){
-			KSPSetControlState(LIGHTS, LOW);
-		}else{
-			KSPSetControlState(LIGHTS, HIGH);
-		}
+		KSPToggleMainControls(LIGHTS);
 	}
 	if(state.pressed.sas){
-		if(KSPGetControlState(AGSAS)){
-			KSPSetControlState(SAS, LOW);
+		
+		// KSPToggleMainControls(SAS);
+		// We need to maintain the SAS state
+		uint8_t SASMode = KSPGetSASMode();
+		if(SASMode > 0){
+			Serial1.print("\nClr SAS: Current SASMode:");
+			Serial1.print(SASMode);
+			KSPSetSASMode(SMOFF); //setting SAS mode
+			KSPSetMainControls(SAS, false);
 		}else{
-			KSPSetControlState(SAS, HIGH);
+			Serial1.print("\nClr SAS: Current SASMode:");
+			Serial1.print(SASMode);
+			// If we are enabling SAS we need to set the SAS mode to default
+			KSPSetSASMode(SMSAS); //setting SAS mode
+			KSPSetMainControls(SAS, true);
 		}
 	}
 }
-
 
 
 /**
@@ -73,6 +75,7 @@ void LEDSAllOn(uint8_t delaytime){
 		}
 	}
 }
+
 
 /**
  * Turn on all the LEDs
@@ -97,19 +100,17 @@ void LEDSAllOff(uint8_t delaytime){
  * @fillChar the character to use to right-fill the output
  * eg. number 5 will render as "101"
  * NOTE:
- * You need to define your max bit length
- * eg. #define kDisplayWidth 16
- * You also need to declare a buffer to store the output
+ * You need to declare a buffer to store the output
  * eg. char pBinFill_Buffer[kDisplayWidth+1];
  */
-char* pBinFill(long int x, char *so, char fillChar){
+char* pBinFill(long int x, char *so, char fillChar, uint8_t len){
 	// fill in array from right to left
-	char s[kDisplayWidth+1];
-	int i = kDisplayWidth;
+	char s[len+1];
+	int i = len;
 	s[i--] = 0x00;  // terminate string
 	do{
 		// fill in array from right to left
-		s[i--] = (x & 1) ? '1' : '0';
+		s[i--] = (x & 1) ? '1' : fillChar;
 		x >>= 1;  // shift right 1 bit
 	} while (x > 0);
 	while (i >= 0) s[i--] = fillChar;  // fill with fillChar 
@@ -124,7 +125,7 @@ char* pBinFill(long int x, char *so, char fillChar){
  **/
 void UpdateStatusLED(){
 	ws2812_led[0] = CRGB(
-		(IOState.Connected?50:0),
+		(IOState.Connected?0:0),
 		(IOState.DataSent?50:0),
 		(IOState.DataReceived?50:0)
 	);
@@ -134,6 +135,14 @@ void UpdateStatusLED(){
 }
 
 
+#define INPUT_DEBOUNCE_BUFLEN 8 // How many input samples we use to debounce
+uint8_t inputstep = 0; // Current debounce buffer index
+
+InputState_t _state;  // Computed state
+Input_t _now;
+Input_t _then;
+// Array to store input buffer samples for debouncing
+Input_t g_inputbuffer[INPUT_DEBOUNCE_BUFLEN];
 
 
 /**
@@ -144,10 +153,10 @@ void GatherInput(){
 	// Fill up the buffer with input events
 	
 	// MAYB: Read all these pins in one go somehow
-	g_inputbuffer[inputstep].sas    = digitalRead(PIN_SAS);
-	g_inputbuffer[inputstep].rcs    = digitalRead(PIN_RCS);
-	g_inputbuffer[inputstep].gear   = digitalRead(PIN_GEAR);
-	g_inputbuffer[inputstep].lights = digitalRead(PIN_LIGHTS);
+	g_inputbuffer[inputstep].sas    = !digitalRead(PIN_SAS);
+	g_inputbuffer[inputstep].rcs    = !digitalRead(PIN_RCS);
+	g_inputbuffer[inputstep].gear   = !digitalRead(PIN_GEAR);
+	g_inputbuffer[inputstep].lights = !digitalRead(PIN_LIGHTS);
 
 	inputstep++;
 	if(inputstep == INPUT_DEBOUNCE_BUFLEN) inputstep = 0;
@@ -163,53 +172,91 @@ InputState_t processInputs(){
 	uint8_t idx = 0;
 
 	// Store the last input run in _then for comparison
-	_then.complete = _now.complete;
+	_then.allbits = _now.allbits;
 	
 	// Clear current states
-	_state.pressed.complete = 0;
-	// _state.repeat.complete = 0;
-	_state.released.complete = 0;
+	_state.pressed.allbits = 0;
+	// _state.repeat.allbits = 0;
+	_state.released.allbits = 0;
 	
-	// Default the _now input to all pressed
-	_now.complete = 0xff;
+	// Default the _now input to pressed
+	_now.allbits = 0xff;
 	// AND the input buffer into _now to debounce button presses
 	// We end up with a struct containing the debounced state of the buttons
 	for(idx=0; idx < INPUT_DEBOUNCE_BUFLEN; idx++){
-		_now.complete = (_now.complete & g_inputbuffer[idx].complete);
+		_now.allbits = (_now.allbits & g_inputbuffer[idx].allbits);
 	}
-	
-	// Calculate the changed and released states using our previous data
 
-	_state.changed.complete = (_then.complete ^ _now.complete);
-	_state.released.complete = (_then.complete & _state.changed.complete);
+	// Calculate the changed and released states using our previous data
+	_state.changed.allbits = (_then.allbits ^ _now.allbits);
+	_state.released.allbits = (_then.allbits & _state.changed.allbits);
 
 	// Pressed is true if the button wasn't pressed before
-	_state.pressed.complete = (~_then.complete & _now.complete);
+	_state.pressed.allbits = (~_then.allbits & _now.allbits);
 
-
-
-	// NOTE: held and repeat are not needed
-	/*
-	// We use a buffer of previous states to determine if a button has been held down
-	// After a certain number of held down events we can emit a repeat
-	// Store current input to determine id individual buttons have been held
-	_buffer[_repeat_buff_idx].complete = _now.complete;
-	if(_repeat_buff_idx < INPUT_REPEAT_LONG-1){
-		_repeat_buff_idx++;
-	}else{
-		_repeat_buff_idx = 0;
-	}
-	
-	// Now determine if buttons have been held
-	// Held has to start all 1s so we can AND out those that are not pressed 
-	_state.held.complete = 0xff;
-	for(idx=0; idx < INPUT_REPEAT_LONG; idx++){
-		_state.held.complete = (_state.held.complete & _buffer[idx].complete);
-	}
-
-	// Update changed in case of repeat
-	// _state.changed.complete |= _state.held.complete;
-	*/
+	// Pressed is the current state
+	_state.held.allbits = _now.allbits;
 
 	return _state;
+}
+
+
+/**
+ * Prints out the state of CPacket.MainControls
+ **/
+void DebugMainControls(){
+	sprintf(
+		sprintbuff,
+		"\nCPacket.MainControls %s",
+		pBinFill(CPacket.MainControls, pBinFill_Buffer, '\xB7', 8)
+	);
+	Serial1.print(sprintbuff);
+}
+
+
+/**
+ * Prints out the state of VesselData controls
+ **/
+void DebugVesselData(){
+	sprintf(
+		sprintbuff,
+		"\nVesselData: SAS(%d):%d RCS:%d GEAR:%d LUZ:%d BRK:%d",
+		KSPGetSASMode(),
+		KSPGetControlState(AGSAS),
+		KSPGetControlState(AGRCS),
+		KSPGetControlState(AGGear),
+		KSPGetControlState(AGLight),
+		KSPGetControlState(AGBrakes)
+	);
+	Serial1.print(sprintbuff);
+}
+
+
+/**
+ * Prints out the current buttons states
+ **/
+void DebugButtonStates(){
+	sprintf(sprintbuff, 
+		"\nBtn Pressed:%s",
+		pBinFill(_state.pressed.allbits,  pBinFill_Buffer, '\xB7', 4)
+	);
+	Serial1.print(sprintbuff);
+	
+	sprintf(sprintbuff, 
+		" Released:%s",
+		pBinFill(_state.released.allbits, pBinFill_Buffer, '\xB7', 4)
+	);
+	Serial1.print(sprintbuff);
+
+	sprintf(sprintbuff, 
+		" Held:%s",
+		pBinFill(_state.held.allbits, pBinFill_Buffer, '\xB7', 4)
+	);
+	Serial1.print(sprintbuff);
+	
+	sprintf(sprintbuff, 
+		" Changed:%s",
+		pBinFill(_state.changed.allbits,  pBinFill_Buffer, '\xB7', 4)
+	);
+	Serial1.print(sprintbuff);
 }

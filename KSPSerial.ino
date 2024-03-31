@@ -8,7 +8,15 @@ uint8_t id;
 uint8_t rx_array_inx;
 uint8_t rx_len;
 
+uint32_t deadtime, deadtimeOld;
+
 KSPSerialIOState_t IOState = {false, false, false};
+
+// These should be here
+HandShakePacket_t HPacket;
+// VesselData_t VData;
+ControlPacket_t CPacket;
+
 
 // Macro to provide address and len of datapacket
 #define DETAILS(name) (uint8_t*)&name,sizeof(name)
@@ -17,22 +25,22 @@ KSPSerialIOState_t IOState = {false, false, false};
 boolean KSPBoardReceiveData() {
 
 	
-	if((rx_len == 0)&&(Serial.available()>3)){
+	if((rx_len == 0)&&(Serial2.available()>3)){
 		
 		// Serial1.println("here");
 		
 		// We look for the preamble "BEEF"
-		while(Serial.read()!= 0xBE) {
-			if(Serial.available() == 0){
+		while(Serial2.read()!= 0xBE) {
+			if(Serial2.available() == 0){
 				return false;
 			}
 		}
 
 
-		if(Serial.read() == 0xEF){
+		if(Serial2.read() == 0xEF){
 			IOState.DataReceived = true;
-			rx_len = Serial.read();
-			id = Serial.read(); 
+			rx_len = Serial2.read();
+			id = Serial2.read(); 
 			rx_array_inx = 1;
 
 			switch(id) {
@@ -55,8 +63,8 @@ boolean KSPBoardReceiveData() {
 	}
 
 	if(rx_len != 0){
-		while(Serial.available() && rx_array_inx <= rx_len){
-			buffer[rx_array_inx] = Serial.read();
+		while(Serial2.available() && rx_array_inx <= rx_len){
+			buffer[rx_array_inx] = Serial2.read();
 			rx_array_inx++;
 		}
 		buffer[0] = id;
@@ -91,20 +99,21 @@ boolean KSPBoardReceiveData() {
  * address and len can be provided by the DETAIL() macro
  **/
 void KSPBoardSendData(uint8_t * address, uint8_t len){
-	IOState.DataSent = true;
-
+	IOState.DataSent = false;
 	uint8_t CS = len;
 
-	Serial.write(0xBE);
-	Serial.write(0xEF);
-	Serial.write(len);
+	Serial2.write(0xBE);
+	Serial2.write(0xEF);
+	Serial2.write(len);
 
 	for(int i = 0; i<len; i++){
 		CS^=*(address+i);
-		Serial.write(*(address+i));
+		Serial2.write(*(address+i));
 	}
 	
-	Serial.write(CS);
+	Serial2.write(CS);
+	
+	IOState.DataSent = true;
 }
 
 void InitTxPackets(){
@@ -123,7 +132,7 @@ void InitTxPackets(){
  **/
 int KSPCheckForUpdate() {
 	int returnValue = -1;
-	now = millis();
+	uint32_t now = millis();
 
 	if(KSPBoardReceiveData()){
 		deadtimeOld = now;
@@ -200,7 +209,7 @@ uint8_t KSPGetSASMode(){
 
 
 /**
- * Returns the current Navball mode
+ * Returns the current Navball mode.
  **/
 uint8_t KSPGetNavballMode(){
 	// Navballmode and SASmode are stored in the same byte
@@ -253,7 +262,7 @@ void KSPSetActionGroup(uint8_t groupbit, boolean state){
  * @controlbit Main Controls ENUM value eg. SAS
  * @state the new value
  **/
-void KSPSetControlState(uint8_t controlbit, boolean state){
+void KSPSetMainControls(uint8_t controlbit, boolean state){
 	if(state){
 		CPacket.MainControls |= (1 << controlbit);  // forces nth bit of x to be 1. all other bits left alone.
 	}else{
@@ -262,11 +271,20 @@ void KSPSetControlState(uint8_t controlbit, boolean state){
 }
 
 /**
+ * Toggles the state one of the ControlPacket.MainContols bits
+ * @controlbit Main Controls ENUM value eg. SAS
+ **/
+void KSPToggleMainControls(uint8_t controlbit){
+	CPacket.MainControls ^= (1 << controlbit);
+}
+
+
+/**
  * Returns the state of the requested main control bit
  * I DONT THINK THIS IS NEEDED.
  * Why would you read the control packet it is used to send data
  **/
-// boolean GetMainControls(uint8_t controlbit){
-// 	// Mask out all but the bit we want
-// 	return CPacket.MainControls & (1 << controlbit);
-// }
+boolean KSPGetMainControls(uint8_t controlbit){
+	// Mask out all but the bit we want
+	return CPacket.MainControls & (1 << controlbit);
+}

@@ -51,7 +51,6 @@
 
 // If no message received from KSP for more than X ms, go idle
 #define IDLETIMER 5000
-#define CONTROLREFRESH 50
 
 typedef struct __attribute__((__packed__)) {
 	uint8_t id;                //1

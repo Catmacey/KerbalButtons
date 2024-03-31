@@ -4,7 +4,7 @@
 
 // This represents the inputs
 typedef union {
-	uint8_t complete;
+	uint8_t allbits;
 	struct {
 		unsigned gear: 1;
 		unsigned rcs: 1;
@@ -16,7 +16,8 @@ typedef union {
 
 // This represents the overall state once debounced
 typedef struct {
-	Input_t pressed;  // Just pressed (ie was not pressed last time)
-	Input_t released; // 
-	Input_t changed;
+	Input_t pressed;  // Just pressed
+	Input_t held;     // Currently pressed
+	Input_t released; // Just Released
+	Input_t changed;  // Change in state
 } InputState_t;
