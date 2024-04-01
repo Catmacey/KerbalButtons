@@ -7,9 +7,9 @@
  **/
 
 // Comment this out for live build
-#define DEBUGBUILD
+// #define DEBUGBUILD
 // Comment this out to not bother sending full debug data
-#define DEBUGLEVEL_FULL
+// #define DEBUGLEVEL_FULL
 
 #include <FastLED.h>
 #include "TypeDefs.h"
