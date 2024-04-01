@@ -13,9 +13,9 @@ uint32_t deadtime, deadtimeOld;
 KSPSerialIOState_t IOState = {false, false, false};
 
 // These should be here
-HandShakePacket_t HPacket;
-// VesselData_t VData;
-ControlPacket_t CPacket;
+// HandShakePacket_t HPacket = {};
+// VesselData_t VData = {};
+// ControlPacket_t CPacket = {};
 
 
 // Macro to provide address and len of datapacket
@@ -25,22 +25,20 @@ ControlPacket_t CPacket;
 boolean KSPBoardReceiveData() {
 
 	
-	if((rx_len == 0)&&(Serial2.available()>3)){
-		
-		// Serial1.println("here");
-		
+	if((rx_len == 0)&&(SERIALKSP.available()>3)){
+
 		// We look for the preamble "BEEF"
-		while(Serial2.read()!= 0xBE) {
-			if(Serial2.available() == 0){
+		while(SERIALKSP.read()!= 0xBE) {
+			if(SERIALKSP.available() == 0){
 				return false;
 			}
 		}
 
 
-		if(Serial2.read() == 0xEF){
+		if(SERIALKSP.read() == 0xEF){
 			IOState.DataReceived = true;
-			rx_len = Serial2.read();
-			id = Serial2.read(); 
+			rx_len = SERIALKSP.read();
+			id = SERIALKSP.read(); 
 			rx_array_inx = 1;
 
 			switch(id) {
@@ -63,8 +61,8 @@ boolean KSPBoardReceiveData() {
 	}
 
 	if(rx_len != 0){
-		while(Serial2.available() && rx_array_inx <= rx_len){
-			buffer[rx_array_inx] = Serial2.read();
+		while(SERIALKSP.available() && rx_array_inx <= rx_len){
+			buffer[rx_array_inx] = SERIALKSP.read();
 			rx_array_inx++;
 		}
 		buffer[0] = id;
@@ -102,16 +100,16 @@ void KSPBoardSendData(uint8_t * address, uint8_t len){
 	IOState.DataSent = false;
 	uint8_t CS = len;
 
-	Serial2.write(0xBE);
-	Serial2.write(0xEF);
-	Serial2.write(len);
+	SERIALKSP.write(0xBE);
+	SERIALKSP.write(0xEF);
+	SERIALKSP.write(len);
 
 	for(int i = 0; i<len; i++){
 		CS^=*(address+i);
-		Serial2.write(*(address+i));
+		SERIALKSP.write(*(address+i));
 	}
 	
-	Serial2.write(CS);
+	SERIALKSP.write(CS);
 	
 	IOState.DataSent = true;
 }
@@ -193,7 +191,7 @@ void ClearState(){
  * This is where RCS, SAS, GEAR as well as Action group state is stored
  * @agbit Action group ENUM value eg. AGSAS or AGCustom04
  **/
-boolean KSPGetControlState(uint8_t agbit){
+boolean KSPGetActionGroups(uint8_t agbit){
 	return ((VData.ActionGroups >> agbit) & 1) == 1;
 }
 

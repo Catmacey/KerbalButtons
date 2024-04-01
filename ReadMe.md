@@ -16,6 +16,25 @@ Uses [FastLED](https://fastled.io/docs/index.html) to control the built-in WS281
 See [HardwareConf.h](HardwareConf.h) for wiring. 
 
 
+RP2040 Zero has 2 HW Serial Ports as well as the USB SoftSerial
+
+In the final build:
+ - USBSerial to talk to KSPIO
+ - Serial0 for optional debug output
+
+
+During development we are resetting the RP2040 a lot, every time we program it. This means the USBSerial port will dissapear/reappear every cycle from KSPSerialIO's point of view. To reconnect you have to revert the flight or sometime restart KSP which takes ages.
+
+So for easier development we can make use of the extra serial ports.
+and a couple of [USB to Serial adaptors](https://www.amazon.com/dp/B07K76Q2DX) to provide KSPSerialIO with a stable port and also another to send to a terminal like [Termite](https://www.compuphase.com/software_termite.htm) for debug output. 
+
+The great thing about this is that the serial ports are independent from the RP2040 so they don't close/open every time the RP2040 resets. You can leave KSP and Termite open all the time and RP2040 will pick up where it left off after every reset.
+
+Dev/Debug:
+- USBSerial only to communicatre with Arduino IDE
+- Serial1 (HW serial 0) debug output (TX only)
+- Serial2 (HW Serial 1) communication with KSPSerialIO (RX+TX)
+
 
 Handy ref: https://arduino-pico.readthedocs.io/en/latest/serial.html
 

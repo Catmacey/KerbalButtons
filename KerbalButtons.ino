@@ -1,9 +1,15 @@
 /**
- * Kerbal Control Panel
+ * Very simple Kerbal Space Program Control Panel
  * 4 Illuminated buttons
- * Connects to Kerbal Space Program 1 via KSPSerialIO
- * https://github.com/zitron-git/KSPSerialIO
+ * Author: Matt Casey matt@catmacey.com
+ * https://github.com/Catmacey/KerbalButtons
+ * Connects to KSPSerialIO https://github.com/zitron-git/KSPSerialIO
  **/
+
+// Comment this out for live build
+#define DEBUGBUILD
+// Comment this out to not bother sending full debug data
+#define DEBUGLEVEL_FULL
 
 #include <FastLED.h>
 #include "TypeDefs.h"
@@ -14,12 +20,32 @@
 #define FASTLED_DATA_PIN 16
 CRGB ws2812_led[FASTLED_NUM_LEDS];
 
+/**
+ * Setup of which serial port we use to talk to KSPSerialIO
+ * Either USBSerial in live mode or Serial2 (HW Serial) in dev mode
+ **/
+void setup_ksp_serial_port(){
+	#ifdef DEBUGBUILD
+		// Dev build port setup
+		// Use one of the HW serial ports
+		#define SERIALKSP Serial2
+		// Pins need configuring
+		SERIALKSP.setTX(PIN_SERIAL2_TX);
+		SERIALKSP.setRX(PIN_SERIAL2_RX);
+	#else
+		// Live build
+		// Use the USB Serial
+		#define SERIALKSP Serial
+	#endif
+	// KSPSerialIO expects this baud rate
+	SERIALKSP.begin(38400);
+}
 
-// Bits to dispaly and buffer to store bit output
+// Buffer to store bit output (big enough to store your largest value + 1)
 char pBinFill_Buffer[17];
 
-// Approx freq that process input
-#define CONTROLREFRESH 100
+// Approx ms between each control process
+#define CONTROLREFRESHMS 75
 uint32_t controlTime, controlTimeOld;
 
 uint8_t all_leds[] = {
@@ -32,7 +58,7 @@ uint8_t all_leds[] = {
 };
 
 // This is here for debug
-VesselData_t VData;
+// VesselData_t VData;
 
 char sprintbuff[100];
 
@@ -40,23 +66,23 @@ char sprintbuff[100];
 void LEDSAllOn(uint8_t delaytime = 20);
 void LEDSAllOff(uint8_t delaytime = 20);
 
-
 void setup(){
-	// USB serial
-	// Serial.begin(38400);
-	// DEV: Using Serial 2 to communicate with KSP
 
 	FastLED.addLeds<NEOPIXEL, FASTLED_DATA_PIN>(ws2812_led, FASTLED_NUM_LEDS);
 
-	// HW Serial 0 on pin 12 for debug output
-	Serial1.setTX(12);
+	// Debug output always on Serial1 (HW Serial 0)
+	Serial1.setTX(PIN_SERIAL1_TX);
 	Serial1.begin(115200);
-	Serial1.println("Boot");
 
-	// Serial 2 is used to talk to KSP
-	Serial2.setTX(4);
-	Serial2.setRX(5);
-	Serial2.begin(38400);
+	setup_ksp_serial_port();
+
+	Serial1.println("Boot");
+	#ifdef DEBUGBUILD
+	Serial1.println("Debug Build : KSP on Serial2");
+	#else
+	Serial1.println("Live Build : KSP on USBSerial");
+	#endif
+
 	
 	InitTxPackets();
 
@@ -89,8 +115,8 @@ void setup(){
 	Serial1.println("Run");
 }
 
-boolean donesend = false;
-boolean sendit = false;
+boolean debug_control_data = false;
+boolean data_to_send = false;
 uint16_t old_VData_ActionGroups = 0;
 uint16_t old_VData_NavballSASMode = 0;
 
@@ -112,24 +138,26 @@ void loop(){
 			break;
 		case 1:
 			// New data
+			// Toggle a debug pin
 			digitalWrite(PIN_RECEIVE_TICK, !digitalRead(PIN_RECEIVE_TICK));
 			// Update LEDs
 			UpdateIndicators();
-			UpdateMainControlsState();
+			UpdateCPacketDataFromVessel();
 			if(
 				(VData.ActionGroups != old_VData_ActionGroups)
 				|| (VData.NavballSASMode != old_VData_NavballSASMode)
 			){
+				// Log changes to button states
 				DebugVesselData();
 				old_VData_ActionGroups = VData.ActionGroups;
 				old_VData_NavballSASMode = VData.NavballSASMode;
 			}
 			// Flag send it as false now we have received some data
-			sendit = false;
-			if(donesend){
-				DebugMainControls();
-				Serial1.print(" <-- As received");
-				donesend = false;
+			data_to_send = false;
+			if(debug_control_data){
+				DebugControlData(false);
+				// Don't debug again until needed
+				debug_control_data = false;
 			}
 			break;
 	}
@@ -137,31 +165,29 @@ void loop(){
 
 	uint32_t now = millis();
 	controlTime = now - controlTimeOld;
-	if(controlTime > CONTROLREFRESH){
+	if(controlTime > CONTROLREFRESHMS){
 		
 		digitalWrite(PIN_CONTROL_TICK, !digitalRead(PIN_CONTROL_TICK));
 
 		InputState_t state = processInputs();
 
-		// DebugVesselData();
-		// DebugMainControls();
-		// Only send data if input has changed
+		// Only update control data if input has changed
 		if(state.pressed.allbits){
-			DebugButtonStates();
 
 			// Populate the Control Packet with out new values
 			WriteControlData(state);
-			DebugMainControls();
-			Serial1.print(" --> To send");
+			DebugControlData(true);
 
 			// Flag that we want to send a packet
-			sendit = true;
+			data_to_send = true;
 
 		}
 	
-		if(sendit){
+		// If we have more contiously changing data such as throttle we might want to send every time
+		if(data_to_send){
 			// Send it as many times as we can until we recieve new data
-			donesend = true;
+			// Indicate that we want to debug next time we receive data
+			debug_control_data = true;
 			KSPSendControlData();
 		}
 

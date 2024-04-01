@@ -36,7 +36,16 @@
 #define LED_RCS       7
 #define LED_SAS       8
 
-// Debug outputs
+// Debug outputs handy to see that loops are running
 #define PIN_LOOP_TICK     26
 #define PIN_CONTROL_TICK  27
 #define PIN_RECEIVE_TICK  28
+
+// Serial port 1 (HW Serial port 0)
+#define PIN_SERIAL1_TX 12 
+// #define PIN_SERIAL1_RX // Not needed
+
+// Serial port 2 (HW Serial port 1)
+// NOTE: These are redefinitions so will trigger a warning. It's ok.
+#define PIN_SERIAL2_TX 4 
+#define PIN_SERIAL2_RX 5

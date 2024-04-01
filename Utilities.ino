@@ -6,22 +6,46 @@ void UpdateIndicators(){
 	// Illuminate the top section of all the buttons
 	digitalWrite(LED_ALLTOP, HIGH);
 	// Illuminate the relevant button
-	digitalWrite(LED_GEAR,   KSPGetControlState(AGGear));
-	digitalWrite(LED_RCS,    KSPGetControlState(AGRCS));
-	digitalWrite(LED_LIGHTS, KSPGetControlState(AGLight));
-	digitalWrite(LED_SAS,    KSPGetControlState(AGSAS));
+	digitalWrite(LED_GEAR,   KSPGetActionGroups(AGGear));
+	digitalWrite(LED_RCS,    KSPGetActionGroups(AGRCS));
+	digitalWrite(LED_LIGHTS, KSPGetActionGroups(AGLight));
+	digitalWrite(LED_SAS,    KSPGetActionGroups(AGSAS));
 }
 
 
 /**
- * Update the CPacket.MainControls data to make the incomming Vessel Data
+ * Update the CPacket.NavballSASMode data to match the incomming Vessel Data
+ * Call this every time you receive new data
+ **/
+void UpdateNavballSASModeState(){
+	KSPSetSASMode(KSPGetSASMode());
+	KSPSetNavballMode(KSPGetNavballMode());
+}
+
+/**
+ * Update the CPacket.MainControls data to match the incomming Vessel Data
  * Call this every time you receive new data
  **/
 void UpdateMainControlsState(){
-	KSPSetMainControls(RCS, KSPGetControlState(AGRCS));
-	KSPSetMainControls(GEAR, KSPGetControlState(AGGear));
-	KSPSetMainControls(LIGHTS, KSPGetControlState(AGLight));
-	KSPSetMainControls(SAS, KSPGetControlState(SAS));
+	KSPSetMainControls(RCS, KSPGetActionGroups(AGRCS));
+	KSPSetMainControls(GEAR, KSPGetActionGroups(AGGear));
+	KSPSetMainControls(LIGHTS, KSPGetActionGroups(AGLight));
+	KSPSetMainControls(SAS, KSPGetActionGroups(AGSAS));
+}
+
+/**
+ * Update the CPacket data to match the incomming Vessel Data
+ * Call this every time you receive new data
+ **/
+void UpdateCPacketDataFromVessel(){
+	// CPacket.NavballSASMode
+	KSPSetSASMode(KSPGetSASMode());
+	KSPSetNavballMode(KSPGetNavballMode());
+	// CPacket.MainControls
+	KSPSetMainControls(RCS, KSPGetActionGroups(AGRCS));
+	KSPSetMainControls(GEAR, KSPGetActionGroups(AGGear));
+	KSPSetMainControls(LIGHTS, KSPGetActionGroups(AGLight));
+	KSPSetMainControls(SAS, KSPGetActionGroups(AGSAS));
 }
 
 
@@ -42,21 +66,14 @@ void WriteControlData(InputState_t state){
 		KSPToggleMainControls(LIGHTS);
 	}
 	if(state.pressed.sas){
-		
-		// KSPToggleMainControls(SAS);
-		// We need to maintain the SAS state
-		uint8_t SASMode = KSPGetSASMode();
-		if(SASMode > 0){
-			Serial1.print("\nClr SAS: Current SASMode:");
-			Serial1.print(SASMode);
-			KSPSetSASMode(SMOFF); //setting SAS mode
+		if(KSPGetActionGroups(AGSAS)){
+			// Turn SAS off
+			KSPSetSASMode(SMOFF);
 			KSPSetMainControls(SAS, false);
 		}else{
-			Serial1.print("\nClr SAS: Current SASMode:");
-			Serial1.print(SASMode);
-			// If we are enabling SAS we need to set the SAS mode to default
-			KSPSetSASMode(SMSAS); //setting SAS mode
+			// Turn SAS on
 			KSPSetMainControls(SAS, true);
+			KSPSetSASMode(SMSAS);
 		}
 	}
 }
@@ -135,82 +152,46 @@ void UpdateStatusLED(){
 }
 
 
-#define INPUT_DEBOUNCE_BUFLEN 8 // How many input samples we use to debounce
-uint8_t inputstep = 0; // Current debounce buffer index
-
-InputState_t _state;  // Computed state
-Input_t _now;
-Input_t _then;
-// Array to store input buffer samples for debouncing
-Input_t g_inputbuffer[INPUT_DEBOUNCE_BUFLEN];
-
 
 /**
- * Gather input for later debounce
- * Run at around 200+Hz
+ * Prints out the state of CPacket
+ * @output is this data we are sending [true] or that we received [false]
  **/
-void GatherInput(){
-	// Fill up the buffer with input events
-	
-	// MAYB: Read all these pins in one go somehow
-	g_inputbuffer[inputstep].sas    = !digitalRead(PIN_SAS);
-	g_inputbuffer[inputstep].rcs    = !digitalRead(PIN_RCS);
-	g_inputbuffer[inputstep].gear   = !digitalRead(PIN_GEAR);
-	g_inputbuffer[inputstep].lights = !digitalRead(PIN_LIGHTS);
-
-	inputstep++;
-	if(inputstep == INPUT_DEBOUNCE_BUFLEN) inputstep = 0;
-}
-
-
-/**
- * Read input buttons and decide if things have changed
- * return 1 to indicate change (data worth sending)
- * Run this at around 20Hz
- **/
-InputState_t processInputs(){
-	uint8_t idx = 0;
-
-	// Store the last input run in _then for comparison
-	_then.allbits = _now.allbits;
-	
-	// Clear current states
-	_state.pressed.allbits = 0;
-	// _state.repeat.allbits = 0;
-	_state.released.allbits = 0;
-	
-	// Default the _now input to pressed
-	_now.allbits = 0xff;
-	// AND the input buffer into _now to debounce button presses
-	// We end up with a struct containing the debounced state of the buttons
-	for(idx=0; idx < INPUT_DEBOUNCE_BUFLEN; idx++){
-		_now.allbits = (_now.allbits & g_inputbuffer[idx].allbits);
-	}
-
-	// Calculate the changed and released states using our previous data
-	_state.changed.allbits = (_then.allbits ^ _now.allbits);
-	_state.released.allbits = (_then.allbits & _state.changed.allbits);
-
-	// Pressed is true if the button wasn't pressed before
-	_state.pressed.allbits = (~_then.allbits & _now.allbits);
-
-	// Pressed is the current state
-	_state.held.allbits = _now.allbits;
-
-	return _state;
-}
-
-
-/**
- * Prints out the state of CPacket.MainControls
- **/
-void DebugMainControls(){
+void DebugControlData(boolean output){
+	#ifndef DEBUGLEVEL_FULL
+		// Skip this if not in correct level
+		return;
+	#endif
+	Serial1.print("\nCPacket:");
+	// Show navball
 	sprintf(
 		sprintbuff,
-		"\nCPacket.MainControls %s",
+		" NavballSASMode %s",
+		pBinFill(CPacket.NavballSASMode, pBinFill_Buffer, '\xB7', 8)
+	);
+	Serial1.print(sprintbuff);
+	
+	// Show Control Groups
+	sprintf(
+		sprintbuff,
+		" ControlGroup %s",
+		pBinFill(CPacket.ControlGroup, pBinFill_Buffer, '\xB7', 16)
+	);
+	Serial1.print(sprintbuff);
+
+	sprintf(
+		sprintbuff,
+		" MainControls %s",
 		pBinFill(CPacket.MainControls, pBinFill_Buffer, '\xB7', 8)
 	);
 	Serial1.print(sprintbuff);
+
+	if(output){
+		Serial1.print(" --> To send");
+	}else{
+		Serial1.print(" <-- Received");
+	}
+
 }
 
 
@@ -218,17 +199,26 @@ void DebugMainControls(){
  * Prints out the state of VesselData controls
  **/
 void DebugVesselData(){
+	#ifndef DEBUGLEVEL_FULL
+		// Skip this if not in correct level
+		return;
+	#endif
+	Serial1.print("\nVessel: ");
+	// Show navball
 	sprintf(
 		sprintbuff,
-		"\nVesselData: SAS(%d):%d RCS:%d GEAR:%d LUZ:%d BRK:%d",
-		KSPGetSASMode(),
-		KSPGetControlState(AGSAS),
-		KSPGetControlState(AGRCS),
-		KSPGetControlState(AGGear),
-		KSPGetControlState(AGLight),
-		KSPGetControlState(AGBrakes)
+		" NavballSASMode %s",
+		pBinFill(VData.NavballSASMode, pBinFill_Buffer, '\xB7', 8)
 	);
 	Serial1.print(sprintbuff);
+	// Show action group
+	sprintf(
+		sprintbuff,
+		" ActionGroups %s",
+		pBinFill(VData.ActionGroups, pBinFill_Buffer, '\xB7', 16)
+	);
+	Serial1.print(sprintbuff);
+
 }
 
 
@@ -236,6 +226,10 @@ void DebugVesselData(){
  * Prints out the current buttons states
  **/
 void DebugButtonStates(){
+	#ifndef DEBUGLEVEL_FULL
+		// Skip this if not in correct level
+		return;
+	#endif
 	sprintf(sprintbuff, 
 		"\nBtn Pressed:%s",
 		pBinFill(_state.pressed.allbits,  pBinFill_Buffer, '\xB7', 4)
